@@ -1,0 +1,17 @@
+{
+  "tasks": {
+    "sync": "deno run -A scripts/sync-data.ts",
+    "dev": "deno run -A scripts/sync-data.ts && deno run -A npm:astro dev",
+    "build": "deno run -A scripts/sync-data.ts && deno run -A npm:astro build",
+    "preview": "deno run -A npm:astro preview"
+  },
+  "imports": {
+    "@std/fs": "jsr:@std/fs@1",
+    "@std/path": "jsr:@std/path@1",
+    "astro": "npm:astro@6.2.1"
+  },
+  "compilerOptions": {
+    "lib": ["deno.ns", "deno.unstable", "dom", "dom.iterable"]
+  },
+  "nodeModulesDir": "auto"
+}

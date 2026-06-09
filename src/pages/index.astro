@@ -1,0 +1,432 @@
+---
+import "../styles/global.css";
+import type { TrainerData } from "../lib/schema.ts";
+
+let data: TrainerData = { sets: [] };
+try {
+  const raw = await Deno.readTextFile(
+    new URL("../../public/data.json", import.meta.url),
+  );
+  data = JSON.parse(raw) as TrainerData;
+} catch {
+  /* sync-data has not run yet */
+}
+
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Armenian Minimal Pairs</title>
+  </head>
+  <body>
+    <div class="layout">
+      <div class="main">
+        <h1 class="page-title">Minimal Pairs</h1>
+        <p class="page-lede">
+          Listen to the prompt and choose the word you heard.
+        </p>
+
+        <label class="option-switch" id="transcription-option" hidden>
+          <span class="option-switch-label">Transcription</span>
+          <input
+            type="checkbox"
+            class="option-switch-input"
+            id="transcription-toggle"
+            checked
+          />
+          <span class="option-switch-track" aria-hidden="true"></span>
+        </label>
+
+        <div class="card" id="trainer" hidden>
+        <p class="card-label">Prompt</p>
+
+        <div class="prompt-area">
+          <p class="prompt-word" id="prompt-display">…</p>
+          <p class="prompt-hint" id="prompt-hint">Choose the word you heard.</p>
+          <button type="button" class="replay-btn" id="begin-btn" hidden>
+            Listen
+          </button>
+          <button type="button" class="replay-btn" id="replay-btn" hidden>
+            Replay audio
+          </button>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="choices" id="choices"></div>
+
+        <button type="button" class="continue-btn" id="continue-btn">
+          Continue
+        </button>
+      </div>
+
+        <div class="card empty-state" id="empty-state" hidden>
+          <p>No practice sets yet.</p>
+          <p>
+            Add audio files under <code>data/audios/{`{word}/`}</code> and run
+            <code>deno task dev</code>.
+          </p>
+        </div>
+
+        <p class="footer-note" id="footer-note" hidden></p>
+
+        <div class="card acknowledgements-card">
+          <p class="card-label">Acknowledgements</p>
+          <p class="acknowledgements-box">
+            Pronunciation audio from <a href="https://forvo.com" target="_blank" rel="noopener noreferrer">Forvo</a> and <a href="https://en.wiktionary.org" target="_blank" rel="noopener noreferrer">Wiktionary</a>.
+            <br/>
+            By <a href="mailto:matveyshnytkin@gmail.com" target="_blank" rel="noopener noreferrer">Matvei Shnytkin</a>
+            (<a href="https://github.com/ShMPMat" target="_blank" rel="noopener noreferrer">GH</a>, <a href="https://t.me/tashtabash_gen" target="_blank" rel="noopener noreferrer">TG</a>).
+          </p>
+        </div>
+      </div>
+
+      <aside class="sidebar" id="sidebar" hidden>
+        <div class="card stats-card">
+          <p class="card-label">Statistics</p>
+
+          <div class="accuracy-row">
+            <div class="accuracy-ring" id="accuracy-ring" style="--pct: 0">
+              <span class="accuracy-pct" id="accuracy-pct">0%</span>
+            </div>
+            <div class="accuracy-text">
+              <span class="accuracy-label">Accuracy</span>
+              <span class="accuracy-count" id="accuracy-count">0 / 0</span>
+            </div>
+          </div>
+
+          <div class="pattern-stats" id="pattern-stats"></div>
+        </div>
+
+        <div class="card history-card">
+          <p class="card-label">History</p>
+          <div class="history-list" id="history-list"></div>
+        </div>
+      </aside>
+    </div>
+
+    <script define:vars={{ data }}>
+      /** @type {import("../lib/schema.ts").TrainerData} */
+      const trainerData = data;
+
+      const trainerEl = document.getElementById("trainer");
+      const emptyEl = document.getElementById("empty-state");
+      const promptDisplay = document.getElementById("prompt-display");
+      const promptHint = document.getElementById("prompt-hint");
+      const beginBtn = document.getElementById("begin-btn");
+      const replayBtn = document.getElementById("replay-btn");
+      const choicesEl = document.getElementById("choices");
+      const continueBtn = document.getElementById("continue-btn");
+      const footerNote = document.getElementById("footer-note");
+      const sidebarEl = document.getElementById("sidebar");
+      const accuracyRing = document.getElementById("accuracy-ring");
+      const accuracyPct = document.getElementById("accuracy-pct");
+      const accuracyCount = document.getElementById("accuracy-count");
+      const patternStatsEl = document.getElementById("pattern-stats");
+      const historyListEl = document.getElementById("history-list");
+      const transcriptionOption = document.getElementById("transcription-option");
+      const transcriptionToggle = document.getElementById("transcription-toggle");
+
+      const TRANSCRIPTION_KEY = "showTranscription";
+      let showTranscription = localStorage.getItem(TRANSCRIPTION_KEY) !== "false";
+
+      /** @type {"answering" | "feedback"} */
+      let phase = "answering";
+      let answered = 0;
+      let correctCount = 0;
+      /** @type {{ word: string; ipa: string; correct: boolean; phonemeGroup: string }[]} */
+      const history = [];
+      /** @type {Map<string, { correct: number; total: number }>} */
+      const groupStats = new Map();
+      /** @type {import("../lib/schema.ts").PairSet | null} */
+      let currentSet = null;
+      /** @type {import("../lib/schema.ts").PairItem | null} */
+      let target = null;
+      let promptAudio = new Audio();
+
+      function shuffle(items) {
+        const copy = [...items];
+        for (let i = copy.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [copy[i], copy[j]] = [copy[j], copy[i]];
+        }
+        return copy;
+      }
+
+      function pickRound() {
+        if (!trainerData.sets.length) return;
+        currentSet = trainerData.sets[
+          Math.floor(Math.random() * trainerData.sets.length)
+        ];
+        target = currentSet.items[
+          Math.floor(Math.random() * currentSet.items.length)
+        ];
+      }
+
+      function playPrompt() {
+        if (!target)
+          return Promise.resolve();
+        promptAudio.pause();
+        promptAudio.currentTime = 0;
+        promptAudio.src = target.audio;
+        return promptAudio.play();
+      }
+
+      function showListenControls() {
+        beginBtn.hidden = false;
+        replayBtn.hidden = true;
+        promptHint.textContent = "Click Listen to hear the prompt.";
+      }
+
+      function showReplayControls() {
+        beginBtn.hidden = true;
+        replayBtn.hidden = false;
+        if (phase === "answering") {
+          promptHint.textContent = "Choose the word you heard.";
+        }
+      }
+
+      function feedbackHintText() {
+        if (!target)
+          return "";
+        return showTranscription
+          ? `You heard “${target.word}” (${target.ipa}).`
+          : `You heard “${target.word}”.`;
+      }
+
+      function applyTranscription() {
+        document.documentElement.classList.toggle(
+          "transcription-off",
+          !showTranscription,
+        );
+        transcriptionToggle.checked = showTranscription;
+        if (phase === "feedback") {
+          promptHint.textContent = feedbackHintText();
+        }
+      }
+
+      function renderChoices() {
+        if (!currentSet || !target)
+          return;
+        choicesEl.replaceChildren();
+        const items = shuffle(currentSet.items);
+
+        items.forEach((item, index) => {
+          const btn = document.createElement("div");
+          btn.className = "choice";
+          btn.dataset.word = item.word;
+          btn.setAttribute("role", "button");
+          btn.tabIndex = 0;
+
+          const idx = document.createElement("span");
+          idx.className = "choice-index";
+          idx.textContent = String(index);
+
+          const text = document.createElement("span");
+          text.className = "choice-text";
+
+          const word = document.createElement("span");
+          word.className = "choice-word";
+          word.textContent = item.word;
+
+          const ipa = document.createElement("span");
+          ipa.className = "choice-ipa";
+          ipa.textContent = item.ipa;
+
+          text.append(word, ipa);
+
+          const play = document.createElement("button");
+          play.type = "button";
+          play.className = "choice-play";
+          play.setAttribute("aria-label", `Play ${item.word}`);
+          play.textContent = "▶";
+          play.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const a = new Audio(item.audio);
+            a.play().catch(() => {});
+          });
+
+          btn.append(idx, text, play);
+
+          btn.addEventListener("click", () => onChoice(item, btn));
+          btn.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onChoice(item, btn);
+            }
+          });
+          choicesEl.append(btn);
+        });
+      }
+
+      function recordAnswer(correct) {
+        if (!target || !currentSet)
+          return;
+
+        answered += 1;
+        if (correct) correctCount += 1;
+
+        const group = currentSet.phonemeGroup;
+        const gs = groupStats.get(group) ?? { correct: 0, total: 0 };
+        gs.total += 1;
+        if (correct) gs.correct += 1;
+        groupStats.set(group, gs);
+
+        history.push({
+          word: target.word,
+          ipa: target.ipa,
+          correct,
+          phonemeGroup: group,
+        });
+
+        updateStats();
+      }
+
+      function updateStats() {
+        const pct = answered ? Math.round((correctCount / answered) * 100) : 0;
+        accuracyRing.style.setProperty("--pct", String(pct));
+        accuracyPct.textContent = `${pct}%`;
+        accuracyCount.textContent = `${correctCount} / ${answered}`;
+        footerNote.textContent = `${answered} answered`;
+
+        patternStatsEl.replaceChildren();
+        if (groupStats.size === 0)
+          return;
+
+        const heading = document.createElement("p");
+        heading.className = "pattern-stats-label";
+        heading.textContent = "Group stats";
+        patternStatsEl.append(heading);
+
+        for (const [group, gs] of [...groupStats.entries()].sort((a, b) =>
+          a[0].localeCompare(b[0])
+        )) {
+          const row = document.createElement("div");
+          row.className = "pattern-row";
+
+          const name = document.createElement("span");
+          name.className = "pattern-name";
+          name.textContent = group;
+
+          const detail = document.createElement("span");
+          detail.className = "pattern-detail";
+          const gpct = gs.total
+            ? Math.round((gs.correct / gs.total) * 100)
+            : 0;
+          detail.textContent = `${gs.correct} of ${gs.total} (${gpct}%)`;
+
+          row.append(name, detail);
+          patternStatsEl.append(row);
+        }
+
+        historyListEl.replaceChildren();
+        for (const entry of history) {
+          const badge = document.createElement("span");
+          badge.className = `history-badge ${
+            entry.correct ? "is-correct" : "is-incorrect"
+          }`;
+          badge.title = entry.phonemeGroup;
+          badge.textContent = entry.word;
+          historyListEl.append(badge);
+        }
+      }
+
+      function setAnsweringUi() {
+        phase = "answering";
+        promptDisplay.textContent = "…";
+        promptHint.textContent = "Choose the word you heard.";
+        promptHint.hidden = false;
+        continueBtn.classList.remove("is-visible");
+        replayBtn.disabled = false;
+
+        for (const el of choicesEl.querySelectorAll(".choice")) {
+          el.classList.remove("is-correct", "is-incorrect", "is-feedback");
+          el.tabIndex = 0;
+          el.setAttribute("aria-disabled", "false");
+        }
+      }
+
+      function onChoice(item, btn) {
+        if (phase !== "answering" || !target) return;
+
+        const correct = item.word === target.word;
+        recordAnswer(correct);
+
+        if (correct) {
+          pickRound();
+          setAnsweringUi();
+          renderChoices();
+          playPrompt();
+          return;
+        }
+
+        phase = "feedback";
+        promptDisplay.textContent = target.word;
+        promptHint.textContent = feedbackHintText();
+        replayBtn.disabled = false;
+        continueBtn.classList.add("is-visible");
+
+        for (const el of choicesEl.querySelectorAll(".choice")) {
+          el.tabIndex = -1;
+          el.setAttribute("aria-disabled", "true");
+          el.classList.add("is-feedback");
+          const word = el.dataset.word;
+          if (word === target.word) el.classList.add("is-correct");
+          if (word === item.word && word !== target.word) {
+            el.classList.add("is-incorrect");
+          }
+        }
+      }
+
+      function startRound() {
+        pickRound();
+        setAnsweringUi();
+        renderChoices();
+        return playPrompt()
+          .then(showReplayControls)
+          .catch((err) => {
+            showListenControls();
+            throw err;
+          });
+      }
+
+      beginBtn.addEventListener("click", () => {
+        showReplayControls();
+        playPrompt().catch(() => {
+          showListenControls();
+        });
+      });
+
+      transcriptionToggle.addEventListener("change", () => {
+        showTranscription = transcriptionToggle.checked;
+        localStorage.setItem(TRANSCRIPTION_KEY, String(showTranscription));
+        applyTranscription();
+      });
+
+      replayBtn.addEventListener("click", () => {
+        playPrompt().catch(() => {});
+      });
+      continueBtn.addEventListener("click", () => {
+        pickRound();
+        setAnsweringUi();
+        renderChoices();
+        playPrompt();
+      });
+
+      if (!trainerData.sets.length) {
+        emptyEl.hidden = false;
+      } else {
+        trainerEl.hidden = false;
+        footerNote.hidden = false;
+        sidebarEl.hidden = false;
+        transcriptionOption.hidden = false;
+        applyTranscription();
+        updateStats();
+        startRound().catch(() => {});
+      }
+    </script>
+  </body>
+</html>
