@@ -1,16 +1,6 @@
 ---
 import "../styles/global.css";
-import type { TrainerData } from "../lib/schema.ts";
-
-let data: TrainerData = { sets: [] };
-try {
-  const raw = await Deno.readTextFile(
-    new URL("../../public/data.json", import.meta.url),
-  );
-  data = JSON.parse(raw) as TrainerData;
-} catch {
-  /* sync-data has not run yet */
-}
+import data from "../../public/data.json" with { type: "json" };
 
 ---
 
@@ -72,16 +62,6 @@ try {
         </div>
 
         <p class="footer-note" id="footer-note" hidden></p>
-
-        <div class="card acknowledgements-card">
-          <p class="card-label">Acknowledgements</p>
-          <p class="acknowledgements-box">
-            Pronunciation audio from <a href="https://forvo.com" target="_blank" rel="noopener noreferrer">Forvo</a> and <a href="https://en.wiktionary.org" target="_blank" rel="noopener noreferrer">Wiktionary</a>.
-            <br/>
-            By <a href="mailto:matveyshnytkin@gmail.com" target="_blank" rel="noopener noreferrer">Matvei Shnytkin</a>
-            (<a href="https://github.com/ShMPMat" target="_blank" rel="noopener noreferrer">GH</a>, <a href="https://t.me/tashtabash_gen" target="_blank" rel="noopener noreferrer">TG</a>).
-          </p>
-        </div>
       </div>
 
       <aside class="sidebar" id="sidebar" hidden>
@@ -104,6 +84,18 @@ try {
         <div class="card history-card">
           <p class="card-label">History</p>
           <div class="history-list" id="history-list"></div>
+        </div>
+
+        <div class="card acknowledgements-card">
+          <p class="card-label">Acknowledgements</p>
+          <p class="acknowledgements-box">
+            The inspiration is <a href="https://kotu.io/tests/ja/pitchAccent/perception/minimalPairs" target="_blank" rel="noopener noreferrer">コツ</a>.
+            <br/>
+            Pronunciation audio from <a href="https://forvo.com" target="_blank" rel="noopener noreferrer">Forvo</a> and <a href="https://en.wiktionary.org" target="_blank" rel="noopener noreferrer">Wiktionary</a>.
+            <br/>
+            By <a href="mailto:matveyshnytkin@gmail.com" target="_blank" rel="noopener noreferrer">Matvei Shnytkin</a>
+            (<a href="https://github.com/ShMPMat" target="_blank" rel="noopener noreferrer">GH</a>, <a href="https://t.me/tashtabash_gen" target="_blank" rel="noopener noreferrer">TG</a>).
+          </p>
         </div>
       </aside>
     </div>
